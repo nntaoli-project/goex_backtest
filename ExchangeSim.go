@@ -102,6 +102,10 @@ func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
 			bid := ex.currDepth.BidList[idx]
 			if bid.Price >= ord.Price {
 				ex.fillOrder(isTaker, bid.Amount, bid.Price, ord)
+				if ord.Status == goex.ORDER_FINISH {
+					delete(ex.pendingOrders, ord.OrderID2)
+					ex.finishedOrders[ord.OrderID2] = ord
+				}
 			} else {
 				break
 			}
@@ -112,6 +116,10 @@ func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
 			ask := ex.currDepth.AskList[idx]
 			if ask.Price <= ord.Price {
 				ex.fillOrder(isTaker, ask.Amount, ask.Price, ord)
+				if ord.Status == goex.ORDER_FINISH {
+					delete(ex.pendingOrders, ord.OrderID2)
+					ex.finishedOrders[ord.OrderID2] = ord
+				}
 			} else {
 				break
 			}
