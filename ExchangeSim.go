@@ -159,7 +159,10 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 	ex.pendingOrders[ord.OrderID2] = &ord
 
 	ex.matchOrder(&ord, true)
-	return &ord, nil
+
+	var result goex.Order
+	DeepCopyStruct(ord , &result)
+	return &result, nil
 }
 
 func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPair) (*goex.Order, error) {
@@ -185,6 +188,10 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 	ex.pendingOrders[ord.OrderID2] = &ord
 
 	ex.matchOrder(&ord, true)
+
+	var result goex.Order
+	DeepCopyStruct(ord, &result)
+
 	return &ord, nil
 }
 
@@ -225,13 +232,16 @@ func (ex *ExchangeSim) GetOneOrder(orderId string, currency goex.CurrencyPair) (
 	defer ex.RUnlock()
 
 	ord := ex.finishedOrders[orderId]
-	if ord != nil {
-		return ord, nil
+	if ord == nil {
+		ord = ex.pendingOrders[orderId]
 	}
 
-	ord = ex.pendingOrders[orderId]
 	if ord != nil {
-		return ord, nil
+		// deep copy
+		var result goex.Order
+		DeepCopyStruct(ord, &result)
+
+		return &result, nil
 	}
 
 	return nil, NotFoundOrderError
@@ -240,10 +250,12 @@ func (ex *ExchangeSim) GetOneOrder(orderId string, currency goex.CurrencyPair) (
 func (ex *ExchangeSim) GetUnfinishOrders(currency goex.CurrencyPair) ([]goex.Order, error) {
 	ex.RLock()
 	defer ex.RUnlock()
+
 	var unfinishedOrders []goex.Order
 	for _, ord := range ex.pendingOrders {
 		unfinishedOrders = append(unfinishedOrders, *ord)
 	}
+
 	return unfinishedOrders, nil
 }
 
@@ -254,7 +266,18 @@ func (ex *ExchangeSim) GetOrderHistorys(currency goex.CurrencyPair, currentPage,
 func (ex *ExchangeSim) GetAccount() (*goex.Account, error) {
 	ex.RLock()
 	defer ex.RUnlock()
-	return ex.acc, nil
+
+	var account goex.Account
+	account.SubAccounts = make(map[goex.Currency]goex.SubAccount, 2)
+	for _, sub := range ex.acc.SubAccounts {
+		account.SubAccounts[sub.Currency] = goex.SubAccount{
+			Currency:     sub.Currency,
+			Amount:       sub.Amount,
+			ForzenAmount: sub.ForzenAmount,
+		}
+	}
+
+	return &account, nil
 }
 
 func (ex *ExchangeSim) GetTicker(currency goex.CurrencyPair) (*goex.Ticker, error) {
