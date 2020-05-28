@@ -1,7 +1,7 @@
 ### goex_backtest 基于orderbook数字货币回测
 #### 回测数据格式说明
 1.标准的csv格式文件，注意：不需要header     
-2.模版如下:    
+2.模版如下(注意csv不需要header列，下面只是做每一列说明):    
  
  | timestamp | ask[n].price | ask[n].amount | ... | ask[0].price | ask[0].amount | bid[0].price | bid[0].amount | ... | bid[n].price | bid[n].amount |
  | --------- | ------------ | ------------- | --- | ------------ | ------------- | ------------ | ------------- | --- | ------------ | ------------- |
