@@ -1,8 +1,15 @@
 package main
 
 import (
+	"encoding/csv"
 	"errors"
+	"fmt"
 	"github.com/nntaoli-project/goex"
+	"log"
+	"math"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -12,6 +19,7 @@ var (
 	InsufficientError        = errors.New("insufficient")
 	CancelOrderFinishedError = errors.New("order finished")
 	NotFoundOrderError       = errors.New("not found order")
+	AssetSnapshotCsvFileName = "%s_asset_snapshot.csv"
 )
 
 type ExchangeSim struct {
@@ -26,6 +34,8 @@ type ExchangeSim struct {
 	depthLoader          map[goex.CurrencyPair]*DepthDataLoader
 	currDepth            goex.Depth
 	idGen                *IdGen
+
+	sortedCurrencies []goex.Currency
 }
 
 func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
@@ -53,6 +63,29 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 		})
 	}
 
+	for _, sub := range sim.acc.SubAccounts {
+		sim.sortedCurrencies = append(sim.sortedCurrencies, sub.Currency)
+	}
+
+	sort.Slice(sim.sortedCurrencies, func(i, j int) bool {
+		return strings.Compare(sim.sortedCurrencies[i].Symbol, sim.sortedCurrencies[j].Symbol) > 0
+	})
+
+	var header []string
+	for _, c := range sim.sortedCurrencies {
+		header = append(header, c.Symbol)
+	}
+
+	csvFile := fmt.Sprintf(AssetSnapshotCsvFileName, sim.name)
+	f, err := os.OpenFile(csvFile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0744)
+	if err != nil {
+		panic(err)
+	}
+	csvW := csv.NewWriter(f)
+	csvW.Write(header)
+	csvW.Flush()
+	f.Close()
+
 	return sim
 }
 
@@ -66,7 +99,7 @@ func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.
 	}
 
 	ratio := dealAmount / (ord.DealAmount + dealAmount)
-	ord.AvgPrice = ratio*price + (1-ratio)*ord.AvgPrice
+	ord.AvgPrice = math.Round(ratio*price+(1-ratio)*ord.AvgPrice*100000000) / 100000000
 
 	ord.DealAmount += dealAmount
 	if ord.Amount == ord.DealAmount {
@@ -86,13 +119,14 @@ func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.
 	switch ord.Side {
 	case goex.SELL:
 		tradeFee = dealAmount * price * fee
-		ex.unFrozenAsset(tradeFee, dealAmount, price, ord)
 	case goex.BUY:
 		tradeFee = dealAmount * fee
-		ex.unFrozenAsset(tradeFee, dealAmount, price, ord)
 	}
+	tradeFee = math.Floor(tradeFee*100000000) / 100000000
 
 	ord.Fee += tradeFee
+
+	ex.unFrozenAsset(tradeFee, dealAmount, price, *ord)
 }
 
 func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
@@ -100,11 +134,12 @@ func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
 	case goex.SELL:
 		for idx := 0; idx < len(ex.currDepth.BidList); idx++ {
 			bid := ex.currDepth.BidList[idx]
-			if bid.Price >= ord.Price {
+			if bid.Price >= ord.Price && bid.Amount > 0 {
 				ex.fillOrder(isTaker, bid.Amount, bid.Price, ord)
 				if ord.Status == goex.ORDER_FINISH {
 					delete(ex.pendingOrders, ord.OrderID2)
 					ex.finishedOrders[ord.OrderID2] = ord
+					break
 				}
 			} else {
 				break
@@ -114,11 +149,12 @@ func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
 		idx := len(ex.currDepth.AskList) - 1
 		for ; idx >= 0; idx-- {
 			ask := ex.currDepth.AskList[idx]
-			if ask.Price <= ord.Price {
+			if ask.Price <= ord.Price && ask.Amount > 0 {
 				ex.fillOrder(isTaker, ask.Amount, ask.Price, ord)
 				if ord.Status == goex.ORDER_FINISH {
 					delete(ex.pendingOrders, ord.OrderID2)
 					ex.finishedOrders[ord.OrderID2] = ord
+					break
 				}
 			} else {
 				break
@@ -139,11 +175,6 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 	ex.Lock()
 	defer ex.Unlock()
 
-	err := ex.frozenAsset(goex.ToFloat64(amount)*goex.ToFloat64(price), currency.CurrencyB)
-	if err != nil {
-		return nil, err
-	}
-
 	ord := goex.Order{
 		Price:     goex.ToFloat64(price),
 		Amount:    goex.ToFloat64(amount),
@@ -154,25 +185,29 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 		Side:      goex.BUY,
 		Type:      "limit",
 	}
-	ord.Cid = ord.OrderID2
+	//ord.Cid = ord.OrderID2
+
+	err := ex.frozenAsset(ord)
+	if err != nil {
+		return nil, err
+	}
 
 	ex.pendingOrders[ord.OrderID2] = &ord
 
 	ex.matchOrder(&ord, true)
 
+	if ord.OrderID2 == "binance.com.2020-05-29.471" || ord.OrderID2 == " binance.com.2020-05-29.470" {
+		log.Println("match after:===debug===", ord.OrderID2, "==", ex.acc)
+	}
+
 	var result goex.Order
-	DeepCopyStruct(ord , &result)
+	DeepCopyStruct(ord, &result)
 	return &result, nil
 }
 
 func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPair) (*goex.Order, error) {
 	ex.Lock()
 	defer ex.Unlock()
-
-	err := ex.frozenAsset(goex.ToFloat64(amount), currency.CurrencyA)
-	if err != nil {
-		return nil, err
-	}
 
 	ord := goex.Order{
 		Price:     goex.ToFloat64(price),
@@ -184,7 +219,13 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 		Side:      goex.SELL,
 		Type:      "limit",
 	}
-	ord.Cid = ord.OrderID2
+	//ord.Cid = ord.OrderID2
+
+	err := ex.frozenAsset(ord)
+	if err != nil {
+		return nil, err
+	}
+
 	ex.pendingOrders[ord.OrderID2] = &ord
 
 	ex.matchOrder(&ord, true)
@@ -222,7 +263,7 @@ func (ex *ExchangeSim) CancelOrder(orderId string, currency goex.CurrencyPair) (
 	ord.Status = goex.ORDER_CANCEL
 	ex.finishedOrders[ord.OrderID2] = ord
 
-	ex.unFrozenAsset(0, ord.Amount-ord.DealAmount, 0, ord)
+	ex.unFrozenAsset(0, 0, 0, *ord)
 
 	return true, nil
 }
@@ -314,51 +355,117 @@ func (ex *ExchangeSim) GetExchangeName() string {
 }
 
 //冻结
-func (ex *ExchangeSim) frozenAsset(amount float64, currency goex.Currency) error {
-	avaAmount := ex.acc.SubAccounts[currency].Amount
-	if avaAmount < amount {
-		return InsufficientError
+func (ex *ExchangeSim) frozenAsset(order goex.Order) error {
+
+	switch order.Side {
+	case goex.SELL:
+		avaAmount := ex.acc.SubAccounts[order.Currency.CurrencyA].Amount
+		if avaAmount < order.Amount {
+			return InsufficientError
+		}
+		ex.acc.SubAccounts[order.Currency.CurrencyA] = goex.SubAccount{
+			Currency:     order.Currency.CurrencyA,
+			Amount:       avaAmount - order.Amount,
+			ForzenAmount: ex.acc.SubAccounts[order.Currency.CurrencyA].ForzenAmount + order.Amount,
+			LoanAmount:   0,
+		}
+	case goex.BUY:
+		avaAmount := ex.acc.SubAccounts[order.Currency.CurrencyB].Amount
+		need := order.Amount * order.Price
+		if avaAmount < need {
+			return InsufficientError
+		}
+		ex.acc.SubAccounts[order.Currency.CurrencyB] = goex.SubAccount{
+			Currency:     order.Currency.CurrencyB,
+			Amount:       avaAmount - need,
+			ForzenAmount: ex.acc.SubAccounts[order.Currency.CurrencyB].ForzenAmount + need,
+			LoanAmount:   0,
+		}
 	}
 
-	ex.acc.SubAccounts[currency] = goex.SubAccount{
-		Currency:     currency,
-		Amount:       avaAmount - amount,
-		ForzenAmount: ex.acc.SubAccounts[currency].ForzenAmount + amount,
-		LoanAmount:   0,
-	}
+	ex.assetSnapshot()
 
 	return nil
 }
 
-func (ex *ExchangeSim) unFrozenAsset(fee, filledAmount, price float64, ord *goex.Order) {
-	assetA := ex.acc.SubAccounts[ord.Currency.CurrencyA]
-	assetB := ex.acc.SubAccounts[ord.Currency.CurrencyB]
+//解冻
+func (ex *ExchangeSim) unFrozenAsset(fee, matchAmount, matchPrice float64, order goex.Order) {
+	assetA := ex.acc.SubAccounts[order.Currency.CurrencyA]
+	assetB := ex.acc.SubAccounts[order.Currency.CurrencyB]
 
-	switch ord.Side {
+	switch order.Side {
 	case goex.SELL:
-		ex.acc.SubAccounts[ord.Currency.CurrencyA] = goex.SubAccount{
-			Currency:     ord.Currency.CurrencyA,
-			Amount:       assetA.Amount,
-			ForzenAmount: assetA.ForzenAmount - filledAmount,
-			LoanAmount:   0,
+		if order.Status == goex.ORDER_CANCEL {
+			ex.acc.SubAccounts[assetA.Currency] = goex.SubAccount{
+				Currency:     assetA.Currency,
+				Amount:       assetA.Amount + order.Amount - order.DealAmount,
+				ForzenAmount: assetA.ForzenAmount - (order.Amount - order.DealAmount),
+				LoanAmount:   0,
+			}
+		} else {
+			ex.acc.SubAccounts[assetA.Currency] = goex.SubAccount{
+				Currency:     assetA.Currency,
+				Amount:       assetA.Amount,
+				ForzenAmount: assetA.ForzenAmount - matchAmount,
+				LoanAmount:   0,
+			}
+			ex.acc.SubAccounts[assetB.Currency] = goex.SubAccount{
+				Currency:     assetB.Currency,
+				Amount:       assetB.Amount + matchAmount*matchPrice - fee,
+				ForzenAmount: assetB.ForzenAmount,
+			}
 		}
-		ex.acc.SubAccounts[ord.Currency.CurrencyB] = goex.SubAccount{
-			Currency:     ord.Currency.CurrencyB,
-			Amount:       assetB.Amount + filledAmount*price - fee,
-			ForzenAmount: assetB.ForzenAmount,
-		}
+
 	case goex.BUY:
-		unFrozen := filledAmount * ord.Price
-		ex.acc.SubAccounts[ord.Currency.CurrencyA] = goex.SubAccount{
-			Currency:     ord.Currency.CurrencyA,
-			Amount:       assetA.Amount + filledAmount - fee,
-			ForzenAmount: assetA.ForzenAmount,
-			LoanAmount:   0,
-		}
-		ex.acc.SubAccounts[ord.Currency.CurrencyB] = goex.SubAccount{
-			Currency:     ord.Currency.CurrencyB,
-			Amount:       assetB.Amount + (unFrozen - filledAmount*price),
-			ForzenAmount: assetB.ForzenAmount - unFrozen,
+		if order.Status == goex.ORDER_CANCEL {
+			unFrozen := (order.Amount - order.DealAmount) * order.Price
+			ex.acc.SubAccounts[assetB.Currency] = goex.SubAccount{
+				Currency:     assetB.Currency,
+				Amount:       assetB.Amount + unFrozen,
+				ForzenAmount: assetB.ForzenAmount - unFrozen,
+			}
+		} else {
+			ex.acc.SubAccounts[assetA.Currency] = goex.SubAccount{
+				Currency:     assetA.Currency,
+				Amount:       assetA.Amount + matchAmount - fee,
+				ForzenAmount: assetA.ForzenAmount,
+				LoanAmount:   0,
+			}
+			ex.acc.SubAccounts[assetB.Currency] = goex.SubAccount{
+				Currency:     assetB.Currency,
+				Amount:       assetB.Amount + matchAmount*(order.Price-matchPrice),
+				ForzenAmount: assetB.ForzenAmount - matchAmount*order.Price,
+			}
 		}
 	}
+
+	ex.assetSnapshot()
+}
+
+func (ex *ExchangeSim) assetSnapshot() {
+	csvFile := fmt.Sprintf(AssetSnapshotCsvFileName, ex.name)
+	f, err := os.OpenFile(csvFile, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0744)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			log.Println("close file error=", err)
+		}
+	}()
+
+	csvW := csv.NewWriter(f)
+
+	var (
+		data []string
+	)
+
+	for _, currency := range ex.sortedCurrencies {
+		sub := ex.acc.SubAccounts[currency]
+		data = append(data, goex.FloatToString(sub.Amount+sub.ForzenAmount, 10))
+	}
+
+	csvW.Write(data)
+	csvW.Flush()
 }
