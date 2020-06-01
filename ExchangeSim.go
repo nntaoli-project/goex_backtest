@@ -301,7 +301,16 @@ func (ex *ExchangeSim) GetUnfinishOrders(currency goex.CurrencyPair) ([]goex.Ord
 }
 
 func (ex *ExchangeSim) GetOrderHistorys(currency goex.CurrencyPair, currentPage, pageSize int) ([]goex.Order, error) {
-	panic("not support")
+	ex.RLock()
+	defer ex.RUnlock()
+
+	var orders []goex.Order
+	for _, ord := range ex.finishedOrders {
+		if ord.Currency.Eq(currency) {
+			orders = append(orders, *ord)
+		}
+	}
+	return orders, nil
 }
 
 func (ex *ExchangeSim) GetAccount() (*goex.Account, error) {
