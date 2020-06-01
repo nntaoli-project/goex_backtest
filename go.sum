@@ -18,8 +18,8 @@ github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxv
 github.com/konsorten/go-windows-terminal-sequences v1.0.2/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
-github.com/nntaoli-project/goex v1.2.0 h1:ca/3osJz2+SeqYD3dMA4/85MpvjFhR/S86h3xOV1Il8=
-github.com/nntaoli-project/goex v1.2.0/go.mod h1:sCb1e95fe/WBvGA8JVQc3r2XTFawUZro39mb9/qY3To=
+github.com/nntaoli-project/goex v0.0.0-20200601083020-b5ac2d8cbf8e h1:z3fl+/7ExE3lU4Fr5Zi+FMyNOT3wzAc/DU/3GP0em+M=
+github.com/nntaoli-project/goex v0.0.0-20200601083020-b5ac2d8cbf8e/go.mod h1:sCb1e95fe/WBvGA8JVQc3r2XTFawUZro39mb9/qY3To=
 github.com/nubo/jwt v0.0.0-20150918093313-da5b79c3bbaf/go.mod h1:LuR7jHS+7SJ6EywD7zZiO6h0vwTBSevFk5wunVt3gf4=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

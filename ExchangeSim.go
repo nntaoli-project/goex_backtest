@@ -90,6 +90,8 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 }
 
 func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.Order) {
+	ord.FinishedTime = ex.currDepth.UTime.UnixNano() / int64(time.Millisecond) //set filled time
+
 	dealAmount := 0.0
 	remain := ord.Amount - ord.DealAmount
 	if remain > amount {
@@ -179,7 +181,7 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 		Price:     goex.ToFloat64(price),
 		Amount:    goex.ToFloat64(amount),
 		OrderID2:  ex.idGen.Get(),
-		OrderTime: int(time.Now().UnixNano() / int64(time.Millisecond)),
+		OrderTime: int(ex.currDepth.UTime.UnixNano() / int64(time.Millisecond)),
 		Status:    goex.ORDER_UNFINISH,
 		Currency:  currency,
 		Side:      goex.BUY,
@@ -196,10 +198,6 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 
 	ex.matchOrder(&ord, true)
 
-	if ord.OrderID2 == "binance.com.2020-05-29.471" || ord.OrderID2 == " binance.com.2020-05-29.470" {
-		log.Println("match after:===debug===", ord.OrderID2, "==", ex.acc)
-	}
-
 	var result goex.Order
 	DeepCopyStruct(ord, &result)
 	return &result, nil
@@ -213,7 +211,7 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 		Price:     goex.ToFloat64(price),
 		Amount:    goex.ToFloat64(amount),
 		OrderID2:  ex.idGen.Get(),
-		OrderTime: int(time.Now().UnixNano() / int64(time.Millisecond)),
+		OrderTime: int(ex.currDepth.UTime.UnixNano() / int64(time.Millisecond)),
 		Status:    goex.ORDER_UNFINISH,
 		Currency:  currency,
 		Side:      goex.SELL,
