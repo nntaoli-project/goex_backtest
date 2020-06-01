@@ -233,7 +233,7 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 	var result goex.Order
 	DeepCopyStruct(ord, &result)
 
-	return &ord, nil
+	return &result, nil
 }
 
 func (ex *ExchangeSim) MarketBuy(amount, price string, currency goex.CurrencyPair) (*goex.Order, error) {
