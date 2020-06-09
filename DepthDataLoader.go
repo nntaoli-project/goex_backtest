@@ -15,7 +15,7 @@ import (
 type DepthDataLoader struct {
 	*DataConfig
 	depths        []goex.Depth
-	curDate       time.Time
+	nextLoadDate  time.Time
 	currTimestamp time.Time
 	beginTime     time.Time
 	Index         int
@@ -27,10 +27,10 @@ const dataBaseDir = "data"
 
 func NewDepthDataLoader(config DataConfig) *DepthDataLoader {
 	loader := &DepthDataLoader{
-		DataConfig: &config,
-		Index:      -1,
-		curDate:    config.StarTime,
-		beginTime:  time.Now(),
+		DataConfig:   &config,
+		Index:        -1,
+		nextLoadDate: config.StarTime,
+		beginTime:    time.Now(),
 	}
 	loader.loadData(true)
 	return loader
@@ -40,19 +40,25 @@ func (loader *DepthDataLoader) loadData(first bool) {
 	loader.depths = loader.depths[:0]
 	loader.Index = -1
 
-	if loader.curDate.After(loader.EndTime) {
+	if loader.nextLoadDate.After(loader.EndTime) {
 		return
 	}
 
+	now := time.Now()
+
 	fileName := fmt.Sprintf("%s/%s_%s_%s.csv", dataBaseDir, loader.Ex,
-		loader.Pair.ToLower().ToSymbol(""), loader.curDate.Format("2006-01-02"))
+		loader.Pair.ToLower().ToSymbol(""), loader.nextLoadDate.Format("2006-01-02"))
+	if loader.UnGzip {
+		fileName += ".gz"
+	}
+
+	log.Println("###### begin load the", fileName, "######")
 
 	var (
 		ioReader io.ReadCloser
 	)
 
 	if loader.UnGzip {
-		fileName += ".gz"
 		f, err := os.Open(fileName)
 		if err != nil {
 			log.Println(err)
@@ -80,8 +86,10 @@ func (loader *DepthDataLoader) loadData(first bool) {
 	}
 
 	step := loader.Size * 2
-
+	recordCount := 0
 	for _, r := range records {
+		recordCount++
+
 		dep := goex.Depth{
 			ContractType: "",
 			Pair:         loader.Pair,
@@ -111,7 +119,10 @@ func (loader *DepthDataLoader) loadData(first bool) {
 		loader.StarTime = loader.depths[0].UTime
 	}
 
-	loader.curDate = loader.curDate.AddDate(0, 0, 1)
+	end := time.Now()
+	log.Println("###### end   load the", fileName, ",load record count", recordCount, ",elapsed", end.Sub(now), " ######")
+
+	loader.nextLoadDate = loader.nextLoadDate.AddDate(0, 0, 1)
 }
 
 func (loader *DepthDataLoader) Next() *goex.Depth {
