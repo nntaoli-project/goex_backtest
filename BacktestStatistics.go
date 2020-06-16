@@ -26,9 +26,9 @@ func (s *BacktestStatistics) NetAssetReport() {
 		charts.TitleOpts{
 			Title:    "回测",
 			Subtitle: "https://github.com/nntaoli-project/goex_backtest",
-			Top:      "20px",
-			Left:     "400px",
-			Bottom:   "150px",
+			//Top:      "20px",
+			//Left:     "400px",
+			//Bottom:   "150px",
 		},
 		charts.InitOpts{PageTitle: "净值", Width: "1080px"},
 		charts.YAxisOpts{SplitLine: charts.SplitLineOpts{Show: true}, Scale: true},

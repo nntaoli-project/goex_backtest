@@ -11,20 +11,21 @@ import (
 )
 
 func main() {
-	log.Println("begin backtest")
-
-	okexSim := NewExchangeSim(ExchangeSimConfig{
+	log.Println("###### begin backtest ######")
+	beginT := time.Now()
+	sim := NewExchangeSim(ExchangeSimConfig{
 		ExName:               goex.BINANCE,
-		TakerFee:             0.0045,
-		MakerFee:             0.00018,
-		SupportCurrencyPairs: []goex.CurrencyPair{goex.BTC_USDT},
+		TakerFee:             0.00025,
+		MakerFee:             -0.00015,
+		QuoteCurrency:        goex.USDT,
+		SupportCurrencyPairs: []goex.CurrencyPair{goex.BTC_USDT}, // CurrencyB 同一次回测只支持一种交易市场的交易对,为了净值统计
 		Account: goex.Account{
 			SubAccounts: map[goex.Currency]goex.SubAccount{
-				goex.BTC: goex.SubAccount{
+				goex.BTC: {
 					Currency: goex.BTC,
-					Amount:   1,
+					Amount:   0,
 				},
-				goex.USDT: goex.SubAccount{
+				goex.USDT: {
 					Currency: goex.USDT,
 					Amount:   10000,
 				},
@@ -32,13 +33,11 @@ func main() {
 		},
 		BackTestStartTime: time.Date(2020, 03, 12, 0, 0, 0, 0, time.Local),
 		BackTestEndTime:   time.Date(2020, 03, 12, 0, 0, 0, 0, time.Local),
+		DepthSize:         20, //深度挡数
 		UnGzip:            false,
 	})
 
-	strategy := strategies.NewSampleStrategy(okexSim)
 	ctx, cancel := context.WithCancel(context.Background())
-
-	strategy.Main(ctx)
 
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -52,4 +51,14 @@ func main() {
 		}
 	}()
 
+	backtestStatistics := NewBacktestStatistics([]*ExchangeSim{sim})
+
+	strategy := strategies.NewSampleStrategy(sim)
+	strategy.Main(ctx)
+
+	backtestStatistics.NetAssetReport()
+	backtestStatistics.OrderReport()
+	backtestStatistics.TaLibReport()
+
+	log.Println("###### end backtest , elapsed ", time.Now().Sub(beginT), "######")
 }
