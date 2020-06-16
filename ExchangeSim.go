@@ -29,6 +29,7 @@ type ExchangeSim struct {
 	makerFee             float64
 	takerFee             float64
 	supportCurrencyPairs []goex.CurrencyPair
+	quoteCurrency        goex.Currency
 	pendingOrders        map[string]*goex.Order
 	finishedOrders       map[string]*goex.Order
 	depthLoader          map[goex.CurrencyPair]*DepthDataLoader
@@ -47,19 +48,23 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 		takerFee:             config.TakerFee,
 		acc:                  &config.Account,
 		supportCurrencyPairs: config.SupportCurrencyPairs,
+		quoteCurrency:        config.QuoteCurrency,
 		pendingOrders:        make(map[string]*goex.Order, 100),
 		finishedOrders:       make(map[string]*goex.Order, 100),
 		depthLoader:          make(map[goex.CurrencyPair]*DepthDataLoader, 1),
 	}
 
 	for _, pair := range config.SupportCurrencyPairs {
+		if !pair.CurrencyB.Eq(config.QuoteCurrency) {
+			panic("the CurrencyPair only one quote currency per backtest")
+		}
 		sim.depthLoader[pair] = NewDepthDataLoader(DataConfig{
 			Ex:       sim.name,
 			Pair:     pair,
 			StarTime: config.BackTestStartTime,
 			EndTime:  config.BackTestEndTime,
 			UnGzip:   config.UnGzip,
-			Size:     20,
+			Size:     config.DepthSize,
 		})
 	}
 
@@ -73,14 +78,17 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 
 	var header []string
 	for _, c := range sim.sortedCurrencies {
-		header = append(header, c.Symbol)
+		header = append(header, fmt.Sprintf("%s_available", c.Symbol))
+		header = append(header, fmt.Sprintf("%s_frozen", c.Symbol))
 	}
+	header = append(header, "NetAsset")
 
 	csvFile := fmt.Sprintf(AssetSnapshotCsvFileName, sim.name)
 	f, err := os.OpenFile(csvFile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0744)
 	if err != nil {
 		panic(err)
 	}
+
 	csvW := csv.NewWriter(f)
 	csvW.Write(header)
 	csvW.Flush()
@@ -455,6 +463,7 @@ func (ex *ExchangeSim) assetSnapshot() {
 	if err != nil {
 		panic(err)
 	}
+
 	defer func() {
 		err := f.Close()
 		if err != nil {
@@ -468,10 +477,24 @@ func (ex *ExchangeSim) assetSnapshot() {
 		data []string
 	)
 
+	netAsset := 0.0
 	for _, currency := range ex.sortedCurrencies {
 		sub := ex.acc.SubAccounts[currency]
-		data = append(data, goex.FloatToString(sub.Amount+sub.ForzenAmount, 10))
+		data = append(data, goex.FloatToString(sub.Amount, 10))
+		data = append(data, goex.FloatToString(sub.ForzenAmount, 10))
+		if currency.Eq(ex.quoteCurrency) {
+			netAsset += sub.Amount + sub.ForzenAmount
+		} else {
+			pair := goex.NewCurrencyPair(currency, ex.quoteCurrency)
+			ticker, err := ex.GetTicker(pair)
+			if err != nil {
+				log.Println("[ERROR] GetTicker CurrencyPair=", pair.ToSymbol(""), ",error=", err)
+				continue
+			}
+			netAsset += (sub.Amount + sub.ForzenAmount) * ticker.Buy
+		}
 	}
+	data = append(data, goex.FloatToString(netAsset, 10))
 
 	csvW.Write(data)
 	csvW.Flush()
