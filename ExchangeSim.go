@@ -97,6 +97,14 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 	return sim
 }
 
+func NewExchangeSimWithTomlConfig(ex string) *ExchangeSim {
+	c, err := LoadTomlConfig(fmt.Sprintf("%s_sim.toml", ex))
+	if err != nil {
+		panic("not found toml config")
+	}
+	return NewExchangeSim(c)
+}
+
 func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.Order) {
 	ord.FinishedTime = ex.currDepth.UTime.UnixNano() / int64(time.Millisecond) //set filled time
 

@@ -13,6 +13,7 @@ var sim = NewExchangeSim(ExchangeSimConfig{
 	ExName:               goex.BINANCE,
 	TakerFee:             0.0002,
 	MakerFee:             -0.0001,
+	QuoteCurrency:        goex.USDT,
 	SupportCurrencyPairs: []goex.CurrencyPair{goex.BTC_USDT},
 	Account: goex.Account{
 		SubAccounts: map[goex.Currency]goex.SubAccount{

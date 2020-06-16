@@ -1,0 +1,15 @@
+exName="binance.com"
+supportCurrencyPairs =["BTC_USDT"]
+takerFee=0.00025
+makerFee=-0.00015
+depthSize=20
+unGzip=false
+backTestStartTime="2020-03-12T00:00:00Z"
+backTestEndTime="2020-03-12T00:00:00Z"
+
+[quote_currency]
+   symbol="USDT"
+
+[accounts]
+   btc=0.0
+   usdt=100000.0
