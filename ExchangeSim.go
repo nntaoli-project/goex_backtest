@@ -33,10 +33,14 @@ type ExchangeSim struct {
 	pendingOrders        map[string]*goex.Order
 	finishedOrders       map[string]*goex.Order
 	depthLoader          map[goex.CurrencyPair]*DepthDataLoader
+	klineLoader          *KLineDataLoader
+	currKline            goex.Kline
 	currDepth            goex.Depth
 	idGen                *IdGen
 
 	sortedCurrencies []goex.Currency
+
+	backTestDataType BackTestDataType
 }
 
 func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
@@ -52,6 +56,13 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 		pendingOrders:        make(map[string]*goex.Order, 100),
 		finishedOrders:       make(map[string]*goex.Order, 100),
 		depthLoader:          make(map[goex.CurrencyPair]*DepthDataLoader, 1),
+		klineLoader: NewKLineDataLoader(DataConfig{
+			Ex:       config.ExName,
+			StarTime: config.BackTestStartTime,
+			EndTime:  config.BackTestEndTime,
+			UnGzip:   config.UnGzip,
+		}),
+		backTestDataType: config.BackTestData,
 	}
 
 	for _, pair := range config.SupportCurrencyPairs {
@@ -107,6 +118,9 @@ func NewExchangeSimWithTomlConfig(ex string) *ExchangeSim {
 
 func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.Order) {
 	ord.FinishedTime = ex.currDepth.UTime.UnixNano() / int64(time.Millisecond) //set filled time
+	if ex.backTestDataType == BackTestDataType_KLine {
+		ord.FinishedTime = ex.currKline.Timestamp
+	}
 
 	dealAmount := 0.0
 	remain := ord.Amount - ord.DealAmount
@@ -148,6 +162,15 @@ func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.
 }
 
 func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
+	switch ex.backTestDataType {
+	case BackTestDataType_Depth:
+		ex.matchOrderByDepthData(ord, isTaker)
+	case BackTestDataType_KLine:
+		ex.matchOrderByKlineData(ord, isTaker)
+	}
+}
+
+func (ex *ExchangeSim) matchOrderByDepthData(ord *goex.Order, isTaker bool) {
 	switch ord.Side {
 	case goex.SELL:
 		for idx := 0; idx < len(ex.currDepth.BidList); idx++ {
@@ -181,6 +204,10 @@ func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
 	}
 }
 
+func (ex *ExchangeSim) matchOrderByKlineData(ord *goex.Order, isTaker bool) {
+	ex.fillOrder(isTaker, ord.Amount, ord.Price, ord)
+}
+
 func (ex *ExchangeSim) match() {
 	ex.Lock()
 	defer ex.Unlock()
@@ -204,6 +231,10 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 		Type:      "limit",
 	}
 	//ord.Cid = ord.OrderID2
+
+	if ex.backTestDataType == BackTestDataType_KLine {
+		ord.OrderTime = int(ex.currKline.Timestamp)
+	}
 
 	err := ex.frozenAsset(ord)
 	if err != nil {
@@ -232,6 +263,10 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 		Currency:  currency,
 		Side:      goex.SELL,
 		Type:      "limit",
+	}
+
+	if ex.backTestDataType == BackTestDataType_KLine {
+		ord.OrderTime = int(ex.currKline.Timestamp)
 	}
 	//ord.Cid = ord.OrderID2
 
@@ -366,7 +401,13 @@ func (ex *ExchangeSim) GetDepth(size int, currency goex.CurrencyPair) (*goex.Dep
 }
 
 func (ex *ExchangeSim) GetKlineRecords(currency goex.CurrencyPair, period goex.KlinePeriod, size int, opt ...goex.OptionalParameter) ([]goex.Kline, error) {
-	panic("not support")
+	data, err := ex.klineLoader.Next(currency, period, size)
+	if err != nil {
+		return nil, err
+	}
+	ex.currKline = data[0]
+	ex.match()
+	return data, err
 }
 
 func (ex *ExchangeSim) GetTrades(currencyPair goex.CurrencyPair, since int64) ([]goex.Trade, error) {
@@ -494,12 +535,16 @@ func (ex *ExchangeSim) assetSnapshot() {
 			netAsset += sub.Amount + sub.ForzenAmount
 		} else {
 			pair := goex.NewCurrencyPair(currency, ex.quoteCurrency)
-			ticker, err := ex.GetTicker(pair)
-			if err != nil {
-				log.Println("[ERROR] GetTicker CurrencyPair=", pair.ToSymbol(""), ",error=", err)
-				continue
+			if ex.backTestDataType == BackTestDataType_KLine {
+				netAsset += (sub.Amount + sub.ForzenAmount) * ex.currKline.Close
+			} else {
+				ticker, err := ex.GetTicker(pair)
+				if err != nil {
+					log.Println("[ERROR] GetTicker CurrencyPair=", pair.ToSymbol(""), ",error=", err)
+					continue
+				}
+				netAsset += (sub.Amount + sub.ForzenAmount) * ticker.Buy
 			}
-			netAsset += (sub.Amount + sub.ForzenAmount) * ticker.Buy
 		}
 	}
 	data = append(data, goex.FloatToString(netAsset, 10))

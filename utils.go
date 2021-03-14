@@ -26,6 +26,7 @@ func LoadTomlConfig(tomlFile string) (ExchangeSimConfig, error) {
 			BackTestEndTime      time.Time
 			DepthSize            int  //回测多少档深度
 			UnGzip               bool //是否解压
+			BackTestDataType     BackTestDataType
 		}
 	)
 
@@ -42,6 +43,7 @@ func LoadTomlConfig(tomlFile string) (ExchangeSimConfig, error) {
 	simConfig.UnGzip = tomlConfig.UnGzip
 	simConfig.BackTestEndTime = tomlConfig.BackTestEndTime
 	simConfig.BackTestStartTime = tomlConfig.BackTestStartTime
+	simConfig.BackTestData = tomlConfig.BackTestDataType
 
 	for _, pair := range tomlConfig.SupportCurrencyPairs {
 		simConfig.SupportCurrencyPairs = append(simConfig.SupportCurrencyPairs, goex.NewCurrencyPair2(pair))

@@ -23,6 +23,14 @@ type ExchangeSimConfig struct {
 	Account              goex.Account
 	BackTestStartTime    time.Time
 	BackTestEndTime      time.Time
-	DepthSize            int  //回测多少档深度
-	UnGzip               bool //是否解压
+	DepthSize            int              //回测多少档深度
+	UnGzip               bool             //是否解压
+	BackTestData         BackTestDataType //回测数据类型
 }
+
+type BackTestDataType int
+
+const (
+	BackTestDataType_Depth BackTestDataType = iota + 1
+	BackTestDataType_KLine
+)

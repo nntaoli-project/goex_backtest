@@ -1,0 +1,16 @@
+exName="huobi.pro"
+supportCurrencyPairs =["BTC_USDT"]
+takerFee=0.00
+makerFee=0.00
+depthSize=20
+unGzip=false
+backTestStartTime="2020-03-01T00:00:00Z"
+backTestEndTime="2020-03-10T00:00:00Z"
+backTestDataType=2
+
+[quote_currency]
+   symbol="USDT"
+
+[accounts]
+   btc=0.0
+   usdt=100000.0

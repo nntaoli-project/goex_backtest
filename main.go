@@ -37,7 +37,7 @@ func main() {
 	//	UnGzip:            false,
 	//})
 
-	sim := NewExchangeSimWithTomlConfig(goex.BINANCE)
+	sim := NewExchangeSimWithTomlConfig(goex.HUOBI_PRO)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -55,7 +55,7 @@ func main() {
 
 	backtestStatistics := NewBacktestStatistics([]*ExchangeSim{sim})
 
-	strategy := strategies.NewSampleStrategy(sim)
+	strategy := strategies.NewDoubleMovingStrategy(sim, goex.KLINE_PERIOD_1MIN, 600, 150, goex.BTC_USDT)
 	strategy.Main(ctx)
 
 	backtestStatistics.NetAssetReport()
