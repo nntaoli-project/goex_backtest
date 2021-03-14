@@ -189,7 +189,7 @@ func (ex *ExchangeSim) match() {
 	}
 }
 
-func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair) (*goex.Order, error) {
+func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair, opt ...goex.LimitOrderOptionalParameter) (*goex.Order, error) {
 	ex.Lock()
 	defer ex.Unlock()
 
@@ -219,7 +219,7 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 	return &result, nil
 }
 
-func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPair) (*goex.Order, error) {
+func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPair, opt ...goex.LimitOrderOptionalParameter) (*goex.Order, error) {
 	ex.Lock()
 	defer ex.Unlock()
 
@@ -314,7 +314,7 @@ func (ex *ExchangeSim) GetUnfinishOrders(currency goex.CurrencyPair) ([]goex.Ord
 	return unfinishedOrders, nil
 }
 
-func (ex *ExchangeSim) GetOrderHistorys(currency goex.CurrencyPair, currentPage, pageSize int) ([]goex.Order, error) {
+func (ex *ExchangeSim) GetOrderHistorys(currency goex.CurrencyPair, opt ...goex.OptionalParameter) ([]goex.Order, error) {
 	ex.RLock()
 	defer ex.RUnlock()
 
@@ -365,7 +365,7 @@ func (ex *ExchangeSim) GetDepth(size int, currency goex.CurrencyPair) (*goex.Dep
 	return depth, nil
 }
 
-func (ex *ExchangeSim) GetKlineRecords(currency goex.CurrencyPair, period, size, since int) ([]goex.Kline, error) {
+func (ex *ExchangeSim) GetKlineRecords(currency goex.CurrencyPair, period goex.KlinePeriod, size int, opt ...goex.OptionalParameter) ([]goex.Kline, error) {
 	panic("not support")
 }
 
