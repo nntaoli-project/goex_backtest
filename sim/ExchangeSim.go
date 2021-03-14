@@ -1,10 +1,13 @@
-package main
+package sim
 
 import (
 	"encoding/csv"
 	"errors"
 	"fmt"
 	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex_backtest/loader"
+	"github.com/nntaoli-project/goex_backtest/model"
+	"github.com/nntaoli-project/goex_backtest/util"
 	"log"
 	"math"
 	"os"
@@ -32,21 +35,21 @@ type ExchangeSim struct {
 	quoteCurrency        goex.Currency
 	pendingOrders        map[string]*goex.Order
 	finishedOrders       map[string]*goex.Order
-	depthLoader          map[goex.CurrencyPair]*DepthDataLoader
-	klineLoader          *KLineDataLoader
+	depthLoader          map[goex.CurrencyPair]*loader.DepthDataLoader
+	klineLoader          *loader.KLineDataLoader
 	currKline            goex.Kline
 	currDepth            goex.Depth
-	idGen                *IdGen
+	idGen                *util.IdGen
 
 	sortedCurrencies []goex.Currency
 
-	backTestDataType BackTestDataType
+	backTestDataType model.BackTestDataType
 }
 
-func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
+func NewExchangeSim(config model.ExchangeSimConfig) *ExchangeSim {
 	sim := &ExchangeSim{
 		RWMutex:              new(sync.RWMutex),
-		idGen:                NewIdGen(config.ExName),
+		idGen:                util.NewIdGen(config.ExName),
 		name:                 config.ExName,
 		makerFee:             config.MakerFee,
 		takerFee:             config.TakerFee,
@@ -55,8 +58,8 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 		quoteCurrency:        config.QuoteCurrency,
 		pendingOrders:        make(map[string]*goex.Order, 100),
 		finishedOrders:       make(map[string]*goex.Order, 100),
-		depthLoader:          make(map[goex.CurrencyPair]*DepthDataLoader, 1),
-		klineLoader: NewKLineDataLoader(DataConfig{
+		depthLoader:          make(map[goex.CurrencyPair]*loader.DepthDataLoader, 1),
+		klineLoader: loader.NewKLineDataLoader(model.DataConfig{
 			Ex:       config.ExName,
 			StarTime: config.BackTestStartTime,
 			EndTime:  config.BackTestEndTime,
@@ -69,7 +72,7 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 		if !pair.CurrencyB.Eq(config.QuoteCurrency) {
 			panic("the CurrencyPair only one quote currency per backtest")
 		}
-		sim.depthLoader[pair] = NewDepthDataLoader(DataConfig{
+		sim.depthLoader[pair] = loader.NewDepthDataLoader(model.DataConfig{
 			Ex:       sim.name,
 			Pair:     pair,
 			StarTime: config.BackTestStartTime,
@@ -109,7 +112,7 @@ func NewExchangeSim(config ExchangeSimConfig) *ExchangeSim {
 }
 
 func NewExchangeSimWithTomlConfig(ex string) *ExchangeSim {
-	c, err := LoadTomlConfig(fmt.Sprintf("%s_sim.toml", ex))
+	c, err := util.LoadTomlConfig(fmt.Sprintf("%s_sim.toml", ex))
 	if err != nil {
 		panic("not found toml config")
 	}
@@ -118,7 +121,7 @@ func NewExchangeSimWithTomlConfig(ex string) *ExchangeSim {
 
 func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.Order) {
 	ord.FinishedTime = ex.currDepth.UTime.UnixNano() / int64(time.Millisecond) //set filled time
-	if ex.backTestDataType == BackTestDataType_KLine {
+	if ex.backTestDataType == model.BackTestDataType_KLine {
 		ord.FinishedTime = ex.currKline.Timestamp
 	}
 
@@ -163,9 +166,9 @@ func (ex *ExchangeSim) fillOrder(isTaker bool, amount, price float64, ord *goex.
 
 func (ex *ExchangeSim) matchOrder(ord *goex.Order, isTaker bool) {
 	switch ex.backTestDataType {
-	case BackTestDataType_Depth:
+	case model.BackTestDataType_Depth:
 		ex.matchOrderByDepthData(ord, isTaker)
-	case BackTestDataType_KLine:
+	case model.BackTestDataType_KLine:
 		ex.matchOrderByKlineData(ord, isTaker)
 	}
 }
@@ -232,7 +235,7 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 	}
 	//ord.Cid = ord.OrderID2
 
-	if ex.backTestDataType == BackTestDataType_KLine {
+	if ex.backTestDataType == model.BackTestDataType_KLine {
 		ord.OrderTime = int(ex.currKline.Timestamp)
 	}
 
@@ -246,7 +249,7 @@ func (ex *ExchangeSim) LimitBuy(amount, price string, currency goex.CurrencyPair
 	ex.matchOrder(&ord, true)
 
 	var result goex.Order
-	DeepCopyStruct(ord, &result)
+	util.DeepCopyStruct(ord, &result)
 	return &result, nil
 }
 
@@ -265,7 +268,7 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 		Type:      "limit",
 	}
 
-	if ex.backTestDataType == BackTestDataType_KLine {
+	if ex.backTestDataType == model.BackTestDataType_KLine {
 		ord.OrderTime = int(ex.currKline.Timestamp)
 	}
 	//ord.Cid = ord.OrderID2
@@ -280,7 +283,7 @@ func (ex *ExchangeSim) LimitSell(amount, price string, currency goex.CurrencyPai
 	ex.matchOrder(&ord, true)
 
 	var result goex.Order
-	DeepCopyStruct(ord, &result)
+	util.DeepCopyStruct(ord, &result)
 
 	return &result, nil
 }
@@ -329,7 +332,7 @@ func (ex *ExchangeSim) GetOneOrder(orderId string, currency goex.CurrencyPair) (
 	if ord != nil {
 		// deep copy
 		var result goex.Order
-		DeepCopyStruct(ord, &result)
+		util.DeepCopyStruct(ord, &result)
 
 		return &result, nil
 	}
@@ -535,7 +538,7 @@ func (ex *ExchangeSim) assetSnapshot() {
 			netAsset += sub.Amount + sub.ForzenAmount
 		} else {
 			pair := goex.NewCurrencyPair(currency, ex.quoteCurrency)
-			if ex.backTestDataType == BackTestDataType_KLine {
+			if ex.backTestDataType == model.BackTestDataType_KLine {
 				netAsset += (sub.Amount + sub.ForzenAmount) * ex.currKline.Close
 			} else {
 				ticker, err := ex.GetTicker(pair)

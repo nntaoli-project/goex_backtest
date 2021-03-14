@@ -1,13 +1,14 @@
-package main
+package loader
 
 import (
 	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex_backtest/model"
 	"testing"
 	"time"
 )
 
 func TestKLineDataLoader(t *testing.T) {
-	loader := NewKLineDataLoader(DataConfig{
+	loader := NewKLineDataLoader(model.DataConfig{
 		Ex:       "huobi.pro",
 		StarTime: time.Date(2020, 3, 1, 0, 0, 0, 0, time.Local),
 		EndTime:  time.Date(2020, 3, 3, 0, 0, 0, 0, time.Local),

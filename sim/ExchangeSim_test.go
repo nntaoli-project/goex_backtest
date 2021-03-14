@@ -1,15 +1,16 @@
-package main
+package sim
 
 import (
 	"fmt"
 	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex_backtest/model"
 	"github.com/stretchr/testify/assert"
 	"math"
 	"testing"
 	"time"
 )
 
-var sim = NewExchangeSim(ExchangeSimConfig{
+var sim = NewExchangeSim(model.ExchangeSimConfig{
 	ExName:               goex.BINANCE,
 	TakerFee:             0.0002,
 	MakerFee:             -0.0001,

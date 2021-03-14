@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"github.com/nntaoli-project/goex"
+	sim2 "github.com/nntaoli-project/goex_backtest/sim"
 	"github.com/nntaoli-project/goex_backtest/strategies"
 	"log"
 	"os"
@@ -37,7 +38,7 @@ func main() {
 	//	UnGzip:            false,
 	//})
 
-	sim := NewExchangeSimWithTomlConfig(goex.HUOBI_PRO)
+	sim := sim2.NewExchangeSimWithTomlConfig(goex.HUOBI_PRO)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -53,7 +54,7 @@ func main() {
 		}
 	}()
 
-	backtestStatistics := NewBacktestStatistics([]*ExchangeSim{sim})
+	backtestStatistics := sim2.NewBacktestStatistics([]*sim2.ExchangeSim{sim})
 
 	strategy := strategies.NewDoubleMovingStrategy(sim, goex.KLINE_PERIOD_1MIN, 600, 150, goex.BTC_USDT)
 	strategy.Main(ctx)

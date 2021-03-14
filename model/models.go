@@ -1,4 +1,4 @@
-package main
+package model
 
 import (
 	"github.com/nntaoli-project/goex"

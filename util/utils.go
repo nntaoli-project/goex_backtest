@@ -1,9 +1,10 @@
-package main
+package util
 
 import (
 	"encoding/json"
 	"github.com/BurntSushi/toml"
 	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex_backtest/model"
 	"time"
 )
 
@@ -12,10 +13,10 @@ func DeepCopyStruct(source, target interface{}) {
 	json.Unmarshal(data, target)
 }
 
-func LoadTomlConfig(tomlFile string) (ExchangeSimConfig, error) {
+func LoadTomlConfig(tomlFile string) (model.ExchangeSimConfig, error) {
 	var (
-		simConfig  ExchangeSimConfig
-		tomlConfig struct {
+		simConfig  model.ExchangeSimConfig
+		tomlConfig   struct {
 			ExName               string
 			TakerFee             float64
 			MakerFee             float64
@@ -26,7 +27,7 @@ func LoadTomlConfig(tomlFile string) (ExchangeSimConfig, error) {
 			BackTestEndTime      time.Time
 			DepthSize            int  //回测多少档深度
 			UnGzip               bool //是否解压
-			BackTestDataType     BackTestDataType
+			BackTestDataType     model.BackTestDataType
 		}
 	)
 

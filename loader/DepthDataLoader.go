@@ -1,10 +1,11 @@
-package main
+package loader
 
 import (
 	"compress/gzip"
 	"encoding/csv"
 	"fmt"
 	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex_backtest/model"
 	"io"
 	"log"
 	"os"
@@ -13,7 +14,7 @@ import (
 )
 
 type DepthDataLoader struct {
-	*DataConfig
+	*model.DataConfig
 	depths        []goex.Depth
 	nextLoadDate  time.Time
 	currTimestamp time.Time
@@ -25,7 +26,7 @@ type DepthDataLoader struct {
 
 const dataBaseDir = "data"
 
-func NewDepthDataLoader(config DataConfig) *DepthDataLoader {
+func NewDepthDataLoader(config model.DataConfig) *DepthDataLoader {
 	loader := &DepthDataLoader{
 		DataConfig:   &config,
 		Index:        -1,

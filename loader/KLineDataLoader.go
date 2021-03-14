@@ -1,4 +1,4 @@
-package main
+package loader
 
 import (
 	"compress/gzip"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex_backtest/model"
 	"github.com/spf13/cast"
 	"io"
 	"log"
@@ -20,11 +21,11 @@ type KlineDatas struct {
 }
 
 type KLineDataLoader struct {
-	DataConfig
+	model.DataConfig
 	data map[goex.CurrencyPair]map[goex.KlinePeriod]*KlineDatas
 }
 
-func NewKLineDataLoader(c DataConfig) *KLineDataLoader {
+func NewKLineDataLoader(c model.DataConfig) *KLineDataLoader {
 	loader := &KLineDataLoader{
 		DataConfig: c,
 		data:       make(map[goex.CurrencyPair]map[goex.KlinePeriod]*KlineDatas, 2),
