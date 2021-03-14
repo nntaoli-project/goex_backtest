@@ -450,8 +450,6 @@ func (ex *ExchangeSim) frozenAsset(order goex.Order) error {
 		}
 	}
 
-	ex.assetSnapshot()
-
 	return nil
 }
 
@@ -505,11 +503,9 @@ func (ex *ExchangeSim) unFrozenAsset(fee, matchAmount, matchPrice float64, order
 			}
 		}
 	}
-
-	ex.assetSnapshot()
 }
 
-func (ex *ExchangeSim) assetSnapshot() {
+func (ex *ExchangeSim) AssetSnapshot() {
 	csvFile := fmt.Sprintf(AssetSnapshotCsvFileName, ex.name)
 	f, err := os.OpenFile(csvFile, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0744)
 	if err != nil {
