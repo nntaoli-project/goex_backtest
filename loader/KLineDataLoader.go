@@ -134,13 +134,15 @@ func (loader *KLineDataLoader) adaptKlinePeriod(period goex.KlinePeriod) string 
 	case goex.KLINE_PERIOD_1DAY:
 		return "1d"
 	case goex.KLINE_PERIOD_4H:
-		return "1h"
+		return "4h"
 	case goex.KLINE_PERIOD_1H:
 		return "1h"
 	case goex.KLINE_PERIOD_30MIN:
 		return "30min"
 	case goex.KLINE_PERIOD_15MIN:
 		return "15min"
+	case goex.KLINE_PERIOD_5MIN:
+		return "5min"
 	case goex.KLINE_PERIOD_1MIN:
 		return "1min"
 	default:
