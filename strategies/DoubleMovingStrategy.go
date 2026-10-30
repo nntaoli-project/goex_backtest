@@ -22,6 +22,8 @@ func NewDoubleMovingStrategy(api *sim.ExchangeSim, period goexmodel.KlinePeriod,
 	return &DoubleMovingStrategy{api: api, pair: pair, period: period, long: long, short: short}
 }
 func (s *DoubleMovingStrategy) Main(ctx context.Context) {
+	defer s.api.AssetSnapshot()
+	
 	for {
 		select {
 		case <-ctx.Done():
