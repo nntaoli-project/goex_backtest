@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -13,5 +14,5 @@ func TestExchangeSimCreateOrderRejectsInsufficientBalance(t *testing.T) {
 	pair := goexmodel.CurrencyPair{Symbol: "BTCUSDT", BaseSymbol: "BTC", QuoteSymbol: "USDT"}
 	ex := NewExchangeSim(backtestmodel.ExchangeSimConfig{ExName: "test", QuoteCurrency: "USDT", SupportCurrencyPairs: []goexmodel.CurrencyPair{pair}, Accounts: map[string]goexmodel.Account{"USDT": {Coin: "USDT", Balance: 1, AvailableBalance: 1}}, BackTestStartTime: time.Now(), BackTestEndTime: time.Now(), DepthSize: 1})
 	_, _, err := ex.CreateOrder(pair, 1, 2, goexmodel.Spot_Buy, goexmodel.OrderType_Limit)
-	assert.ErrorIs(t, err, InsufficientError)
+	assert.True(t, errors.Is(err, InsufficientError))
 }

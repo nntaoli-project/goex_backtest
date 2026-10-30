@@ -9,12 +9,13 @@ import (
 )
 
 type DoubleMovingStrategy struct {
-	api         *sim.ExchangeSim
-	pair        goexmodel.CurrencyPair
-	period      goexmodel.KlinePeriod
-	long, short int
-	holdOrder   *goexmodel.Order
-	closePrices []float64
+	api          *sim.ExchangeSim
+	pair         goexmodel.CurrencyPair
+	period       goexmodel.KlinePeriod
+	long, short  int
+	holdOrder    *goexmodel.Order
+	pendingOrder *goexmodel.Order
+	closePrices  []float64
 }
 
 func NewDoubleMovingStrategy(api *sim.ExchangeSim, period goexmodel.KlinePeriod, long, short int, pair goexmodel.CurrencyPair) *DoubleMovingStrategy {
@@ -30,6 +31,7 @@ func (s *DoubleMovingStrategy) Main(ctx context.Context) {
 			if err != nil {
 				return
 			}
+			s.syncPendingOrder()
 			for _, kline := range data {
 				s.closePrices = append(s.closePrices, kline.Close)
 			}
@@ -38,23 +40,47 @@ func (s *DoubleMovingStrategy) Main(ctx context.Context) {
 			}
 			long := talib.Ema(s.closePrices, s.long)
 			short := talib.Ema(s.closePrices, s.short)
+			if s.pendingOrder != nil {
+				continue
+			}
 			if short[len(short)-1] > long[len(long)-1] {
 				if s.holdOrder == nil {
-					order, _, err := s.api.CreateOrder(s.pair, 0.4, data[0].Close, goexmodel.Spot_Buy, goexmodel.OrderType_Limit)
+					order, _, err := s.api.CreateOrder(s.pair, 0.4, 0, goexmodel.Spot_Buy, goexmodel.OrderType_Market)
 					if err == nil {
-						s.holdOrder = order
-						s.api.AssetSnapshot()
-						log.Printf("[开仓] 价格:%f", order.Price)
+						s.pendingOrder = order
+						log.Printf("[开仓信号] 收盘价:%f", data[0].Close)
 					}
 				}
 			} else if s.holdOrder != nil {
-				order, _, err := s.api.CreateOrder(s.pair, s.holdOrder.Qty, data[0].Close, goexmodel.Spot_Sell, goexmodel.OrderType_Limit)
+				order, _, err := s.api.CreateOrder(s.pair, s.holdOrder.Qty, 0, goexmodel.Spot_Sell, goexmodel.OrderType_Market)
 				if err == nil {
-					s.api.AssetSnapshot()
-					log.Printf("[平仓] 价格:%f", order.Price)
-					s.holdOrder = nil
+					s.pendingOrder = order
+					log.Printf("[平仓信号] 收盘价:%f", data[0].Close)
 				}
 			}
 		}
 	}
+}
+
+func (s *DoubleMovingStrategy) syncPendingOrder() {
+	if s.pendingOrder == nil {
+		return
+	}
+	order, _, err := s.api.GetOrderInfo(s.pair, s.pendingOrder.Id)
+	if err != nil || order.Status == goexmodel.OrderStatus_Pending || order.Status == goexmodel.OrderStatus_PartFinished {
+		return
+	}
+	s.pendingOrder = nil
+	if order.Status != goexmodel.OrderStatus_Finished {
+		log.Printf("[订单取消] ID:%s", order.Id)
+		return
+	}
+	if order.Side == goexmodel.Spot_Buy {
+		s.holdOrder = order
+		log.Printf("[开仓] 价格:%f", order.PriceAvg)
+	} else {
+		s.holdOrder = nil
+		log.Printf("[平仓] 价格:%f", order.PriceAvg)
+	}
+	s.api.AssetSnapshot()
 }

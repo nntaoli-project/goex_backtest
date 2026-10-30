@@ -127,21 +127,103 @@ func (ex *ExchangeSim) GetAccount(coin string) (map[string]goexmodel.Account, []
 }
 
 func (ex *ExchangeSim) CreateOrder(pair goexmodel.CurrencyPair, qty, price float64, side goexmodel.OrderSide, orderTy goexmodel.OrderType, _ ...goexmodel.OptionParameter) (*goexmodel.Order, []byte, error) {
-	if orderTy != goexmodel.OrderType_Limit {
-		return nil, nil, errors.New("only limit orders are supported")
+	if orderTy != goexmodel.OrderType_Limit && orderTy != goexmodel.OrderType_Market {
+		return nil, nil, errors.New("unsupported order type")
 	}
-	if qty <= 0 || price <= 0 {
-		return nil, nil, errors.New("quantity and price must be positive")
+	if side != goexmodel.Spot_Buy && side != goexmodel.Spot_Sell {
+		return nil, nil, errors.New("unsupported order side")
+	}
+	if qty <= 0 || (orderTy == goexmodel.OrderType_Limit && price <= 0) {
+		return nil, nil, errors.New("quantity and limit price must be positive")
 	}
 	ex.Lock()
 	defer ex.Unlock()
 	order := &goexmodel.Order{Pair: pair, Id: ex.idGen.Get(), Side: side, OrderTy: orderTy, Status: goexmodel.OrderStatus_Pending, Price: price, Qty: qty, CreatedAt: ex.timestamp()}
-	if err := ex.freeze(order); err != nil {
-		return nil, nil, err
+	if orderTy == goexmodel.OrderType_Limit {
+		if err := ex.freeze(order); err != nil {
+			return nil, nil, err
+		}
 	}
 	ex.pendingOrders[order.Id] = order
-	ex.matchOrder(order, true)
+	if ex.backTestDataType != backtestmodel.BackTestDataType_KLine {
+		ex.matchOrder(order, true)
+	}
 	return copyOrder(order), nil, nil
+}
+
+func (ex *ExchangeSim) cancelOrder(order *goexmodel.Order) {
+	delete(ex.pendingOrders, order.Id)
+	order.Status = goexmodel.OrderStatus_Canceled
+	order.CanceledAt = ex.timestamp()
+	ex.finishedOrders[order.Id] = order
+	if order.OrderTy == goexmodel.OrderType_Limit {
+		ex.release(order, 0, 0, 0)
+	}
+}
+
+func (ex *ExchangeSim) orderedPendingOrders(pair goexmodel.CurrencyPair) []*goexmodel.Order {
+	orders := make([]*goexmodel.Order, 0, len(ex.pendingOrders))
+	for _, order := range ex.pendingOrders {
+		if order.Pair.Symbol == pair.Symbol {
+			orders = append(orders, order)
+		}
+	}
+	sort.Slice(orders, func(i, j int) bool {
+		if orders[i].CreatedAt == orders[j].CreatedAt {
+			return orders[i].Id < orders[j].Id
+		}
+		return orders[i].CreatedAt < orders[j].CreatedAt
+	})
+	return orders
+}
+
+func (ex *ExchangeSim) matchKlineOrders() {
+	remainingVolume := ex.currKline.Vol
+	for _, order := range ex.orderedPendingOrders(ex.currKline.Pair) {
+		if remainingVolume <= 0 || order.CreatedAt >= ex.currKline.Timestamp {
+			continue
+		}
+
+		price, shouldFill := ex.klineFillPrice(order)
+		if !shouldFill {
+			continue
+		}
+
+		amount := math.Min(remainingVolume, order.Qty-order.ExecutedQty)
+		if order.OrderTy == goexmodel.OrderType_Market {
+			amount = ex.marketOrderAmount(order, amount, price)
+			if amount == 0 {
+				ex.cancelOrder(order)
+				continue
+			}
+		}
+
+		ex.fillOrder(order.OrderTy == goexmodel.OrderType_Market, amount, price, order)
+		remainingVolume -= amount
+	}
+}
+
+func (ex *ExchangeSim) klineFillPrice(order *goexmodel.Order) (float64, bool) {
+	if order.OrderTy == goexmodel.OrderType_Market {
+		return ex.currKline.Open, ex.currKline.Open > 0
+	}
+	if order.Side == goexmodel.Spot_Buy {
+		if ex.currKline.Low > order.Price {
+			return 0, false
+		}
+		return math.Min(ex.currKline.Open, order.Price), true
+	}
+	if ex.currKline.High < order.Price {
+		return 0, false
+	}
+	return math.Max(ex.currKline.Open, order.Price), true
+}
+
+func (ex *ExchangeSim) marketOrderAmount(order *goexmodel.Order, amount, price float64) float64 {
+	if order.Side == goexmodel.Spot_Buy {
+		return math.Min(amount, ex.accounts[order.Pair.QuoteSymbol].AvailableBalance/price)
+	}
+	return math.Min(amount, ex.accounts[order.Pair.BaseSymbol].AvailableBalance)
 }
 func (ex *ExchangeSim) GetOrderInfo(pair goexmodel.CurrencyPair, id string, _ ...goexmodel.OptionParameter) (*goexmodel.Order, []byte, error) {
 	ex.RLock()
@@ -187,11 +269,7 @@ func (ex *ExchangeSim) CancelOrder(pair goexmodel.CurrencyPair, id string, _ ...
 	if order == nil || order.Pair.Symbol != pair.Symbol {
 		return nil, NotFoundOrderError
 	}
-	delete(ex.pendingOrders, id)
-	order.Status = goexmodel.OrderStatus_Canceled
-	order.CanceledAt = ex.timestamp()
-	ex.finishedOrders[id] = order
-	ex.release(order, 0, 0, 0)
+	ex.cancelOrder(order)
 	return nil, nil
 }
 
@@ -204,15 +282,15 @@ func (ex *ExchangeSim) timestamp() int64 {
 func (ex *ExchangeSim) match() {
 	ex.Lock()
 	defer ex.Unlock()
+	if ex.backTestDataType == backtestmodel.BackTestDataType_KLine {
+		ex.matchKlineOrders()
+		return
+	}
 	for _, order := range ex.pendingOrders {
 		ex.matchOrder(order, false)
 	}
 }
 func (ex *ExchangeSim) matchOrder(order *goexmodel.Order, taker bool) {
-	if ex.backTestDataType == backtestmodel.BackTestDataType_KLine {
-		ex.fillOrder(taker, order.Qty, order.Price, order)
-		return
-	}
 	if order.Side == goexmodel.Spot_Sell {
 		for _, bid := range ex.currDepth.Bids {
 			if bid.Price < order.Price || bid.Amount <= 0 {
@@ -280,6 +358,9 @@ func (ex *ExchangeSim) freeze(order *goexmodel.Order) error {
 func (ex *ExchangeSim) release(order *goexmodel.Order, fee, qty, price float64) {
 	base, quote := ex.accounts[order.Pair.BaseSymbol], ex.accounts[order.Pair.QuoteSymbol]
 	if order.Status == goexmodel.OrderStatus_Canceled {
+		if order.OrderTy == goexmodel.OrderType_Market {
+			return
+		}
 		if order.Side == goexmodel.Spot_Sell {
 			rest := order.Qty - order.ExecutedQty
 			base.AvailableBalance += rest
@@ -291,6 +372,22 @@ func (ex *ExchangeSim) release(order *goexmodel.Order, fee, qty, price float64) 
 			quote.FrozenBalance -= rest
 			ex.accounts[quote.Coin] = quote
 		}
+		return
+	}
+	if order.OrderTy == goexmodel.OrderType_Market {
+		if order.Side == goexmodel.Spot_Sell {
+			base.AvailableBalance -= qty
+			base.Balance -= qty
+			quote.AvailableBalance += qty*price - fee
+			quote.Balance += qty*price - fee
+		} else {
+			base.AvailableBalance += qty - fee
+			base.Balance += qty - fee
+			quote.AvailableBalance -= qty * price
+			quote.Balance -= qty * price
+		}
+		ex.accounts[base.Coin] = base
+		ex.accounts[quote.Coin] = quote
 		return
 	}
 	if order.Side == goexmodel.Spot_Sell {
