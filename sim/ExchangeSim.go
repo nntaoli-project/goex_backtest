@@ -127,35 +127,23 @@ func (ex *ExchangeSim) GetAccount(coin string) (map[string]goexmodel.Account, []
 }
 
 func (ex *ExchangeSim) CreateOrder(pair goexmodel.CurrencyPair, qty, price float64, side goexmodel.OrderSide, orderTy goexmodel.OrderType, _ ...goexmodel.OptionParameter) (*goexmodel.Order, []byte, error) {
-	if orderTy != goexmodel.OrderType_Limit && orderTy != goexmodel.OrderType_Market {
-		return nil, nil, errors.New("unsupported order type")
-	}
-	if orderTy == goexmodel.OrderType_Market && ex.backTestDataType != backtestmodel.BackTestDataType_KLine {
-		return nil, nil, errors.New("market orders are only supported in kline backtest")
+	if orderTy != goexmodel.OrderType_Limit {
+		return nil, nil, errors.New("only limit orders are supported")
 	}
 	if side != goexmodel.Spot_Buy && side != goexmodel.Spot_Sell {
 		return nil, nil, errors.New("unsupported order side")
 	}
-	if qty <= 0 {
-		return nil, nil, errors.New("quantity must be positive")
+	if qty <= 0 || price <= 0 {
+		return nil, nil, errors.New("quantity and limit price must be positive")
 	}
 	ex.Lock()
 	defer ex.Unlock()
-	if price <= 0 {
-		if orderTy == goexmodel.OrderType_Limit {
-			return nil, nil, errors.New("limit price must be positive")
-		}
-		// 市价单没有成交价，用当前K线收盘价作为冻结参考价
-		price = ex.currKline.Close
-		if price <= 0 {
-			return nil, nil, errors.New("no reference price for market order")
-		}
-	}
 	order := &goexmodel.Order{Pair: pair, Id: ex.idGen.Get(), Side: side, OrderTy: orderTy, Status: goexmodel.OrderStatus_Pending, Price: price, Qty: qty, CreatedAt: ex.timestamp()}
 	if err := ex.freeze(order); err != nil {
 		return nil, nil, err
 	}
 	ex.pendingOrders[order.Id] = order
+	// 盘口模式下新单立即以 taker 身份撮合；K线模式下等待下一根K线撮合
 	if ex.backTestDataType != backtestmodel.BackTestDataType_KLine {
 		ex.matchOrder(order, true)
 	}
@@ -186,9 +174,11 @@ func (ex *ExchangeSim) orderedPendingOrders(pair goexmodel.CurrencyPair) []*goex
 	return orders
 }
 
+// matchKlineOrders 用当前K线的OHLC和成交量撮合上一根K线及更早创建的挂单。
 func (ex *ExchangeSim) matchKlineOrders() {
 	remainingVolume := ex.currKline.Vol
 	for _, order := range ex.orderedPendingOrders(ex.currKline.Pair) {
+		// 当根K线创建的订单要等下一根K线才能撮合
 		if remainingVolume <= 0 || order.CreatedAt >= ex.currKline.Timestamp {
 			continue
 		}
@@ -199,23 +189,16 @@ func (ex *ExchangeSim) matchKlineOrders() {
 		}
 
 		amount := math.Min(remainingVolume, order.Qty-order.ExecutedQty)
-		if order.OrderTy == goexmodel.OrderType_Market {
-			amount = ex.marketOrderAmount(order, amount, price)
-			if amount == 0 {
-				ex.cancelOrder(order)
-				continue
-			}
+		if amount <= 0 {
+			continue
 		}
-
-		ex.fillOrder(order.OrderTy == goexmodel.OrderType_Market, amount, price, order)
+		// 挂单成交按 maker 费率
+		ex.fillOrder(false, amount, price, order)
 		remainingVolume -= amount
 	}
 }
 
 func (ex *ExchangeSim) klineFillPrice(order *goexmodel.Order) (float64, bool) {
-	if order.OrderTy == goexmodel.OrderType_Market {
-		return ex.currKline.Open, ex.currKline.Open > 0
-	}
 	if order.Side == goexmodel.Spot_Buy {
 		if ex.currKline.Low > order.Price {
 			return 0, false
@@ -228,17 +211,6 @@ func (ex *ExchangeSim) klineFillPrice(order *goexmodel.Order) (float64, bool) {
 	return math.Max(ex.currKline.Open, order.Price), true
 }
 
-func (ex *ExchangeSim) marketOrderAmount(order *goexmodel.Order, amount, price float64) float64 {
-	remain := order.Qty - order.ExecutedQty
-	if order.Side == goexmodel.Spot_Buy {
-		quote := ex.accounts[order.Pair.QuoteSymbol]
-		// 买单已按参考价冻结 remain*order.Price，再加上账户可用计价币，按实际成交价最多能买多少
-		maxAmount := (remain*order.Price + quote.AvailableBalance) / price
-		return math.Min(amount, maxAmount)
-	}
-	// 卖单创建时已冻结基础币，本单剩余量一定能被冻结量覆盖
-	return math.Min(amount, ex.accounts[order.Pair.BaseSymbol].FrozenBalance)
-}
 func (ex *ExchangeSim) GetOrderInfo(pair goexmodel.CurrencyPair, id string, _ ...goexmodel.OptionParameter) (*goexmodel.Order, []byte, error) {
 	ex.RLock()
 	defer ex.RUnlock()
@@ -329,14 +301,23 @@ func (ex *ExchangeSim) matchOrder(order *goexmodel.Order, taker bool) {
 	}
 }
 func (ex *ExchangeSim) fillOrder(taker bool, amount, price float64, order *goexmodel.Order) {
-	deal := math.Min(amount, order.Qty-order.ExecutedQty)
+	remain := order.Qty - order.ExecutedQty
+	deal := math.Min(amount, remain)
 	if deal <= 0 {
 		return
 	}
+	// 浮点误差兜底：最后一笔成交时直接按剩余量成交，避免订单因尾差一直停留在部分成交状态
+	finished := remain-deal <= 1e-12*math.Max(1, order.Qty)
+	if finished {
+		deal = remain
+	}
 	total := order.ExecutedQty + deal
+	if finished {
+		total = order.Qty
+	}
 	order.PriceAvg = (order.PriceAvg*order.ExecutedQty + price*deal) / total
 	order.ExecutedQty = total
-	if total == order.Qty {
+	if finished {
 		order.Status = goexmodel.OrderStatus_Finished
 		order.FinishedAt = ex.timestamp()
 		delete(ex.pendingOrders, order.Id)
