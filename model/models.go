@@ -1,13 +1,13 @@
 package model
 
 import (
-	"github.com/nntaoli-project/goex"
+	"github.com/nntaoli-project/goex/v2/model"
 	"time"
 )
 
 type DataConfig struct {
 	Ex       string
-	Pair     goex.CurrencyPair
+	Pair     model.CurrencyPair
 	StarTime time.Time
 	EndTime  time.Time
 	Size     int //多少档深度数据
@@ -18,9 +18,9 @@ type ExchangeSimConfig struct {
 	ExName               string
 	TakerFee             float64
 	MakerFee             float64
-	SupportCurrencyPairs []goex.CurrencyPair
-	QuoteCurrency        goex.Currency //净值币种
-	Account              goex.Account
+	SupportCurrencyPairs []model.CurrencyPair
+	QuoteCurrency        string //净值币种
+	Accounts             map[string]model.Account
 	BackTestStartTime    time.Time
 	BackTestEndTime      time.Time
 	DepthSize            int              //回测多少档深度

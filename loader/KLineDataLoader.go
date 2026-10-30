@@ -5,37 +5,38 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"github.com/nntaoli-project/goex"
+	goexmodel "github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex_backtest/model"
 	"github.com/spf13/cast"
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
 type KlineDatas struct {
 	Index       int
 	CurrentDate time.Time
-	Data        []goex.Kline
+	Data        []goexmodel.Kline
 }
 
 type KLineDataLoader struct {
 	model.DataConfig
-	data map[goex.CurrencyPair]map[goex.KlinePeriod]*KlineDatas
+	data map[goexmodel.CurrencyPair]map[goexmodel.KlinePeriod]*KlineDatas
 }
 
 func NewKLineDataLoader(c model.DataConfig) *KLineDataLoader {
 	loader := &KLineDataLoader{
 		DataConfig: c,
-		data:       make(map[goex.CurrencyPair]map[goex.KlinePeriod]*KlineDatas, 2),
+		data:       make(map[goexmodel.CurrencyPair]map[goexmodel.KlinePeriod]*KlineDatas, 2),
 	}
 	return loader
 }
 
-func (loader *KLineDataLoader) load(pair goex.CurrencyPair, period goex.KlinePeriod) {
+func (loader *KLineDataLoader) load(pair goexmodel.CurrencyPair, period goexmodel.KlinePeriod) {
 	if loader.data[pair] == nil {
-		loader.data[pair] = make(map[goex.KlinePeriod]*KlineDatas, 2)
+		loader.data[pair] = make(map[goexmodel.KlinePeriod]*KlineDatas, 2)
 	}
 
 	data := loader.data[pair][period]
@@ -51,7 +52,7 @@ func (loader *KLineDataLoader) load(pair goex.CurrencyPair, period goex.KlinePer
 
 	dateStr := data.CurrentDate.Format("2006-01-02")
 	fileName := fmt.Sprintf("%s_kline_%s_%s_%s",
-		loader.Ex, pair.ToLower().ToSymbol(""), loader.adaptKlinePeriod(period), dateStr)
+		loader.Ex, strings.ToLower(pair.Symbol), loader.adaptKlinePeriod(period), dateStr)
 
 	if loader.UnGzip {
 		fileName += ".gz"
@@ -88,7 +89,7 @@ func (loader *KLineDataLoader) load(pair goex.CurrencyPair, period goex.KlinePer
 	}
 
 	for _, line := range records {
-		kline := goex.Kline{
+		kline := goexmodel.Kline{
 			Pair:      pair,
 			Timestamp: cast.ToInt64(line[0]),
 			Open:      cast.ToFloat64(line[3]),
@@ -105,7 +106,7 @@ func (loader *KLineDataLoader) load(pair goex.CurrencyPair, period goex.KlinePer
 	data.CurrentDate = data.CurrentDate.AddDate(0, 0, 1)
 }
 
-func (loader *KLineDataLoader) Next(pair goex.CurrencyPair, period goex.KlinePeriod, size int) (klineData []goex.Kline, err error) {
+func (loader *KLineDataLoader) Next(pair goexmodel.CurrencyPair, period goexmodel.KlinePeriod, size int) (klineData []goexmodel.Kline, err error) {
 	//huobi.pro_kline_btcusdt_1min_2020-10-22.csv
 	data := loader.data[pair][period]
 	if data == nil || len(data.Data) < size+data.Index {
@@ -129,21 +130,21 @@ func (loader *KLineDataLoader) Next(pair goex.CurrencyPair, period goex.KlinePer
 	return klineData, nil
 }
 
-func (loader *KLineDataLoader) adaptKlinePeriod(period goex.KlinePeriod) string {
+func (loader *KLineDataLoader) adaptKlinePeriod(period goexmodel.KlinePeriod) string {
 	switch period {
-	case goex.KLINE_PERIOD_1DAY:
+	case goexmodel.Kline_1day:
 		return "1d"
-	case goex.KLINE_PERIOD_4H:
+	case goexmodel.Kline_4h:
 		return "4h"
-	case goex.KLINE_PERIOD_1H:
+	case goexmodel.Kline_1h:
 		return "1h"
-	case goex.KLINE_PERIOD_30MIN:
+	case goexmodel.Kline_30min:
 		return "30min"
-	case goex.KLINE_PERIOD_15MIN:
+	case goexmodel.Kline_15min:
 		return "15min"
-	case goex.KLINE_PERIOD_5MIN:
+	case goexmodel.Kline_5min:
 		return "5min"
-	case goex.KLINE_PERIOD_1MIN:
+	case goexmodel.Kline_1min:
 		return "1min"
 	default:
 		return "1min"

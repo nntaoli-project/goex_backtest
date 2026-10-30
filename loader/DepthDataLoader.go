@@ -4,18 +4,20 @@ import (
 	"compress/gzip"
 	"encoding/csv"
 	"fmt"
-	"github.com/nntaoli-project/goex"
+	goexmodel "github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex_backtest/model"
+	"github.com/spf13/cast"
 	"io"
 	"log"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
 type DepthDataLoader struct {
 	*model.DataConfig
-	depths        []goex.Depth
+	depths        []goexmodel.Depth
 	nextLoadDate  time.Time
 	currTimestamp time.Time
 	beginTime     time.Time
@@ -48,7 +50,7 @@ func (loader *DepthDataLoader) loadData(first bool) {
 	now := time.Now()
 
 	fileName := fmt.Sprintf("%s/%s_%s_%s.csv", dataBaseDir, loader.Ex,
-		loader.Pair.ToLower().ToSymbol(""), loader.nextLoadDate.Format("2006-01-02"))
+		strings.ToLower(loader.Pair.Symbol), loader.nextLoadDate.Format("2006-01-02"))
 	if loader.UnGzip {
 		fileName += ".gz"
 	}
@@ -91,27 +93,26 @@ func (loader *DepthDataLoader) loadData(first bool) {
 	for _, r := range records {
 		recordCount++
 
-		dep := goex.Depth{
-			ContractType: "",
-			Pair:         loader.Pair,
-			UTime:        time.Unix(goex.ToInt64(r[0])/1000, goex.ToInt64(r[0])%1000),
+		dep := goexmodel.Depth{
+			Pair:  loader.Pair,
+			UTime: time.Unix(cast.ToInt64(r[0])/1000, cast.ToInt64(r[0])%1000),
 		}
 
 		for i := 1; i < step+1; i += 2 {
-			dep.AskList = append(dep.AskList, goex.DepthRecord{
-				Price:  goex.ToFloat64(r[i]),
-				Amount: goex.ToFloat64(r[i+1]),
+			dep.Asks = append(dep.Asks, goexmodel.DepthItem{
+				Price:  cast.ToFloat64(r[i]),
+				Amount: cast.ToFloat64(r[i+1]),
 			})
 		}
 
 		for i := step + 1; i < 2*step+1; i += 2 {
-			dep.BidList = append(dep.BidList, goex.DepthRecord{
-				Price:  goex.ToFloat64(r[i]),
-				Amount: goex.ToFloat64(r[i+1]),
+			dep.Bids = append(dep.Bids, goexmodel.DepthItem{
+				Price:  cast.ToFloat64(r[i]),
+				Amount: cast.ToFloat64(r[i+1]),
 			})
 		}
 
-		sort.Sort(sort.Reverse(dep.AskList))
+		sort.Sort(sort.Reverse(dep.Asks))
 
 		loader.depths = append(loader.depths, dep)
 	}
@@ -126,7 +127,7 @@ func (loader *DepthDataLoader) loadData(first bool) {
 	loader.nextLoadDate = loader.nextLoadDate.AddDate(0, 0, 1)
 }
 
-func (loader *DepthDataLoader) Next() *goex.Depth {
+func (loader *DepthDataLoader) Next() *goexmodel.Depth {
 	if len(loader.depths)-1 <= loader.Index {
 		loader.loadData(false)
 	}

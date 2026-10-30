@@ -2,9 +2,11 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/BurntSushi/toml"
-	"github.com/nntaoli-project/goex"
+	goexmodel "github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex_backtest/model"
+	"strings"
 	"time"
 )
 
@@ -16,18 +18,20 @@ func DeepCopyStruct(source, target interface{}) {
 func LoadTomlConfig(tomlFile string) (model.ExchangeSimConfig, error) {
 	var (
 		simConfig  model.ExchangeSimConfig
-		tomlConfig   struct {
+		tomlConfig struct {
 			ExName               string
 			TakerFee             float64
 			MakerFee             float64
 			SupportCurrencyPairs []string
-			QuoteCurrency        goex.Currency      `toml:"quote_currency"` //净值币种
-			Account              map[string]float64 `toml:"accounts"`
-			BackTestStartTime    time.Time
-			BackTestEndTime      time.Time
-			DepthSize            int  //回测多少档深度
-			UnGzip               bool //是否解压
-			BackTestDataType     model.BackTestDataType
+			QuoteCurrency        struct {
+				Symbol string `toml:"symbol"`
+			} `toml:"quote_currency"`
+			Account           map[string]float64 `toml:"accounts"`
+			BackTestStartTime time.Time
+			BackTestEndTime   time.Time
+			DepthSize         int  //回测多少档深度
+			UnGzip            bool //是否解压
+			BackTestDataType  model.BackTestDataType
 		}
 	)
 
@@ -37,7 +41,7 @@ func LoadTomlConfig(tomlFile string) (model.ExchangeSimConfig, error) {
 	}
 
 	simConfig.ExName = tomlConfig.ExName
-	simConfig.QuoteCurrency = tomlConfig.QuoteCurrency
+	simConfig.QuoteCurrency = strings.ToUpper(tomlConfig.QuoteCurrency.Symbol)
 	simConfig.TakerFee = tomlConfig.TakerFee
 	simConfig.MakerFee = tomlConfig.MakerFee
 	simConfig.DepthSize = tomlConfig.DepthSize
@@ -47,15 +51,20 @@ func LoadTomlConfig(tomlFile string) (model.ExchangeSimConfig, error) {
 	simConfig.BackTestData = tomlConfig.BackTestDataType
 
 	for _, pair := range tomlConfig.SupportCurrencyPairs {
-		simConfig.SupportCurrencyPairs = append(simConfig.SupportCurrencyPairs, goex.NewCurrencyPair2(pair))
+		parts := strings.Split(strings.ToUpper(pair), "_")
+		if len(parts) != 2 {
+			return simConfig, fmt.Errorf("invalid currency pair %q", pair)
+		}
+		simConfig.SupportCurrencyPairs = append(simConfig.SupportCurrencyPairs, goexmodel.CurrencyPair{
+			Symbol: parts[0] + parts[1], BaseSymbol: parts[0], QuoteSymbol: parts[1],
+		})
 	}
 
-	simConfig.Account.SubAccounts = make(map[goex.Currency]goex.SubAccount, 1)
+	simConfig.Accounts = make(map[string]goexmodel.Account, len(tomlConfig.Account))
 	for c, v := range tomlConfig.Account {
-		currency := goex.NewCurrency(c, "")
-		simConfig.Account.SubAccounts[currency] = goex.SubAccount{
-			Currency: currency,
-			Amount:   v,
+		coin := strings.ToUpper(c)
+		simConfig.Accounts[coin] = goexmodel.Account{
+			Coin: coin, Balance: v, AvailableBalance: v,
 		}
 	}
 

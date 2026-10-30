@@ -2,62 +2,57 @@ package strategies
 
 import (
 	"context"
-	"fmt"
 	"github.com/markcheno/go-talib"
-	"github.com/nntaoli-project/goex"
+	goexmodel "github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex_backtest/sim"
-	"github.com/nntaoli-project/goex_talib"
 	"log"
 )
 
 type DoubleMovingStrategy struct {
-	api    goex.API
-	pair   goex.CurrencyPair
-	period goex.KlinePeriod
-	long   int
-	short  int
-
-	holdOder *goex.Order
+	api         *sim.ExchangeSim
+	pair        goexmodel.CurrencyPair
+	period      goexmodel.KlinePeriod
+	long, short int
+	holdOrder   *goexmodel.Order
+	closePrices []float64
 }
 
-func NewDoubleMovingStrategy(api goex.API,
-	period goex.KlinePeriod,
-	long, short int,
-	pair goex.CurrencyPair) *DoubleMovingStrategy {
-	return &DoubleMovingStrategy{
-		api:    api,
-		pair:   pair,
-		period: period,
-		long:   long,
-		short:  short,
-	}
+func NewDoubleMovingStrategy(api *sim.ExchangeSim, period goexmodel.KlinePeriod, long, short int, pair goexmodel.CurrencyPair) *DoubleMovingStrategy {
+	return &DoubleMovingStrategy{api: api, pair: pair, period: period, long: long, short: short}
 }
-
 func (s *DoubleMovingStrategy) Main(ctx context.Context) {
-	api := s.api.(*sim.ExchangeSim)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			klineData, err := s.api.GetKlineRecords(s.pair, s.period, s.long)
+			data, _, err := s.api.GetKline(s.pair, s.period)
 			if err != nil {
 				return
 			}
-			longValue := goex_talib.Ma(klineData, s.long, talib.EMA, goex_talib.InClose)
-			shortValue := goex_talib.Ma(klineData, s.short, talib.EMA, goex_talib.InClose)
-			if shortValue[len(shortValue)-1] > longValue[len(longValue)-1] {
-				if s.holdOder == nil {
-					s.holdOder, _ = api.LimitBuy("0.4", fmt.Sprint(klineData[0].Close), s.pair)
-					api.AssetSnapshot()
-					log.Printf("[开仓] 短期均线上穿长期均线,短期%d均线值:%f,长期%d均线值:%f,开仓价:%f", s.short, shortValue[len(shortValue)-1], s.long, longValue[len(longValue)-1], s.holdOder.Price)
+			for _, kline := range data {
+				s.closePrices = append(s.closePrices, kline.Close)
+			}
+			if len(s.closePrices) < s.long {
+				continue
+			}
+			long := talib.Ema(s.closePrices, s.long)
+			short := talib.Ema(s.closePrices, s.short)
+			if short[len(short)-1] > long[len(long)-1] {
+				if s.holdOrder == nil {
+					order, _, err := s.api.CreateOrder(s.pair, 0.4, data[0].Close, goexmodel.Spot_Buy, goexmodel.OrderType_Limit)
+					if err == nil {
+						s.holdOrder = order
+						s.api.AssetSnapshot()
+						log.Printf("[开仓] 价格:%f", order.Price)
+					}
 				}
-			} else {
-				if s.holdOder != nil {
-					ord, _ := api.LimitSell(fmt.Sprint(s.holdOder.Amount), fmt.Sprint(klineData[0].Close), s.pair)
-					api.AssetSnapshot()
-					log.Printf("[平仓] 短期均线下穿长期均线,短期%d均线值:%f,长期%d均线值:%f,平仓价:%f", s.short, shortValue[len(shortValue)-1], s.long, longValue[len(longValue)-1], ord.Price)
-					s.holdOder = nil
+			} else if s.holdOrder != nil {
+				order, _, err := s.api.CreateOrder(s.pair, s.holdOrder.Qty, data[0].Close, goexmodel.Spot_Sell, goexmodel.OrderType_Limit)
+				if err == nil {
+					s.api.AssetSnapshot()
+					log.Printf("[平仓] 价格:%f", order.Price)
+					s.holdOrder = nil
 				}
 			}
 		}

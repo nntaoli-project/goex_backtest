@@ -4,9 +4,9 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/go-echarts/go-echarts/charts"
-	"github.com/nntaoli-project/goex"
 	"log"
 	"os"
+	"strconv"
 )
 
 type BacktestStatistics struct {
@@ -52,7 +52,7 @@ func (s *BacktestStatistics) NetAssetReport() {
 			xData    []int
 		)
 		for i, record := range records[1:] {
-			curNetAsset := goex.ToFloat64(record[len(record)-1])
+			curNetAsset, _ := strconv.ParseFloat(record[len(record)-1], 64)
 			netAsset = append(netAsset, curNetAsset)
 			xData = append(xData, i)
 		}

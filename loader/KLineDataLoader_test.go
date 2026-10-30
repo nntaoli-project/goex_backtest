@@ -1,25 +1,15 @@
 package loader
 
 import (
-	"github.com/nntaoli-project/goex"
+	goexmodel "github.com/nntaoli-project/goex/v2/model"
 	"github.com/nntaoli-project/goex_backtest/model"
 	"testing"
-	"time"
 )
 
-func TestKLineDataLoader(t *testing.T) {
-	loader := NewKLineDataLoader(model.DataConfig{
-		Ex:       "huobi.pro",
-		StarTime: time.Date(2020, 3, 1, 0, 0, 0, 0, time.Local),
-		EndTime:  time.Date(2020, 3, 3, 0, 0, 0, 0, time.Local),
-	})
-
-	for {
-		klineData, err := loader.Next(goex.BTC_USDT, goex.KLINE_PERIOD_1MIN, 10)
-		if err != nil {
-			t.Log(err)
-			return
-		}
-		t.Log(klineData)
+func TestKLineDataLoaderNextWithoutData(t *testing.T) {
+	loader := NewKLineDataLoader(model.DataConfig{})
+	_, err := loader.Next(goexmodel.CurrencyPair{Symbol: "BTCUSDT"}, goexmodel.Kline_1min, 1)
+	if err == nil {
+		t.Fatal("expected missing data error")
 	}
 }
