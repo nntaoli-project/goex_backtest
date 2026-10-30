@@ -52,7 +52,16 @@ func (s *DoubleMovingStrategy) Main(ctx context.Context) {
 					}
 				}
 			} else if s.holdOrder != nil {
-				order, _, err := s.api.CreateOrder(s.pair, s.holdOrder.Qty, 0, goexmodel.Spot_Sell, goexmodel.OrderType_Market)
+				// 买入手续费扣的是基础币，卖出时只能卖到账后的净数量
+				qty := s.holdOrder.ExecutedQty
+				if s.holdOrder.FeeCcy == s.pair.BaseSymbol {
+					qty -= s.holdOrder.Fee
+				}
+				if qty <= 0 {
+					s.holdOrder = nil
+					continue
+				}
+				order, _, err := s.api.CreateOrder(s.pair, qty, 0, goexmodel.Spot_Sell, goexmodel.OrderType_Market)
 				if err == nil {
 					s.pendingOrder = order
 					log.Printf("[平仓信号] 收盘价:%f", data[0].Close)

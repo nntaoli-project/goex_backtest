@@ -130,19 +130,30 @@ func (ex *ExchangeSim) CreateOrder(pair goexmodel.CurrencyPair, qty, price float
 	if orderTy != goexmodel.OrderType_Limit && orderTy != goexmodel.OrderType_Market {
 		return nil, nil, errors.New("unsupported order type")
 	}
+	if orderTy == goexmodel.OrderType_Market && ex.backTestDataType != backtestmodel.BackTestDataType_KLine {
+		return nil, nil, errors.New("market orders are only supported in kline backtest")
+	}
 	if side != goexmodel.Spot_Buy && side != goexmodel.Spot_Sell {
 		return nil, nil, errors.New("unsupported order side")
 	}
-	if qty <= 0 || (orderTy == goexmodel.OrderType_Limit && price <= 0) {
-		return nil, nil, errors.New("quantity and limit price must be positive")
+	if qty <= 0 {
+		return nil, nil, errors.New("quantity must be positive")
 	}
 	ex.Lock()
 	defer ex.Unlock()
-	order := &goexmodel.Order{Pair: pair, Id: ex.idGen.Get(), Side: side, OrderTy: orderTy, Status: goexmodel.OrderStatus_Pending, Price: price, Qty: qty, CreatedAt: ex.timestamp()}
-	if orderTy == goexmodel.OrderType_Limit {
-		if err := ex.freeze(order); err != nil {
-			return nil, nil, err
+	if price <= 0 {
+		if orderTy == goexmodel.OrderType_Limit {
+			return nil, nil, errors.New("limit price must be positive")
 		}
+		// 市价单没有成交价，用当前K线收盘价作为冻结参考价
+		price = ex.currKline.Close
+		if price <= 0 {
+			return nil, nil, errors.New("no reference price for market order")
+		}
+	}
+	order := &goexmodel.Order{Pair: pair, Id: ex.idGen.Get(), Side: side, OrderTy: orderTy, Status: goexmodel.OrderStatus_Pending, Price: price, Qty: qty, CreatedAt: ex.timestamp()}
+	if err := ex.freeze(order); err != nil {
+		return nil, nil, err
 	}
 	ex.pendingOrders[order.Id] = order
 	if ex.backTestDataType != backtestmodel.BackTestDataType_KLine {
@@ -156,9 +167,7 @@ func (ex *ExchangeSim) cancelOrder(order *goexmodel.Order) {
 	order.Status = goexmodel.OrderStatus_Canceled
 	order.CanceledAt = ex.timestamp()
 	ex.finishedOrders[order.Id] = order
-	if order.OrderTy == goexmodel.OrderType_Limit {
-		ex.release(order, 0, 0, 0)
-	}
+	ex.release(order, 0, 0, 0)
 }
 
 func (ex *ExchangeSim) orderedPendingOrders(pair goexmodel.CurrencyPair) []*goexmodel.Order {
@@ -220,10 +229,15 @@ func (ex *ExchangeSim) klineFillPrice(order *goexmodel.Order) (float64, bool) {
 }
 
 func (ex *ExchangeSim) marketOrderAmount(order *goexmodel.Order, amount, price float64) float64 {
+	remain := order.Qty - order.ExecutedQty
 	if order.Side == goexmodel.Spot_Buy {
-		return math.Min(amount, ex.accounts[order.Pair.QuoteSymbol].AvailableBalance/price)
+		quote := ex.accounts[order.Pair.QuoteSymbol]
+		// 买单已按参考价冻结 remain*order.Price，再加上账户可用计价币，按实际成交价最多能买多少
+		maxAmount := (remain*order.Price + quote.AvailableBalance) / price
+		return math.Min(amount, maxAmount)
 	}
-	return math.Min(amount, ex.accounts[order.Pair.BaseSymbol].AvailableBalance)
+	// 卖单创建时已冻结基础币，本单剩余量一定能被冻结量覆盖
+	return math.Min(amount, ex.accounts[order.Pair.BaseSymbol].FrozenBalance)
 }
 func (ex *ExchangeSim) GetOrderInfo(pair goexmodel.CurrencyPair, id string, _ ...goexmodel.OptionParameter) (*goexmodel.Order, []byte, error) {
 	ex.RLock()
@@ -334,13 +348,18 @@ func (ex *ExchangeSim) fillOrder(taker bool, amount, price float64, order *goexm
 	if taker {
 		rate = ex.takerFee
 	}
+	// 买入手续费扣基础币，卖出手续费扣计价币
 	fee := deal * rate
+	feeCcy := order.Pair.BaseSymbol
 	if order.Side == goexmodel.Spot_Sell {
 		fee *= price
+		feeCcy = order.Pair.QuoteSymbol
 	}
 	order.Fee += fee
+	order.FeeCcy = feeCcy
 	ex.release(order, fee, deal, price)
 }
+
 func (ex *ExchangeSim) freeze(order *goexmodel.Order) error {
 	coin, required := order.Pair.QuoteSymbol, order.Qty*order.Price
 	if order.Side == goexmodel.Spot_Sell {
@@ -358,9 +377,6 @@ func (ex *ExchangeSim) freeze(order *goexmodel.Order) error {
 func (ex *ExchangeSim) release(order *goexmodel.Order, fee, qty, price float64) {
 	base, quote := ex.accounts[order.Pair.BaseSymbol], ex.accounts[order.Pair.QuoteSymbol]
 	if order.Status == goexmodel.OrderStatus_Canceled {
-		if order.OrderTy == goexmodel.OrderType_Market {
-			return
-		}
 		if order.Side == goexmodel.Spot_Sell {
 			rest := order.Qty - order.ExecutedQty
 			base.AvailableBalance += rest
@@ -372,22 +388,6 @@ func (ex *ExchangeSim) release(order *goexmodel.Order, fee, qty, price float64) 
 			quote.FrozenBalance -= rest
 			ex.accounts[quote.Coin] = quote
 		}
-		return
-	}
-	if order.OrderTy == goexmodel.OrderType_Market {
-		if order.Side == goexmodel.Spot_Sell {
-			base.AvailableBalance -= qty
-			base.Balance -= qty
-			quote.AvailableBalance += qty*price - fee
-			quote.Balance += qty*price - fee
-		} else {
-			base.AvailableBalance += qty - fee
-			base.Balance += qty - fee
-			quote.AvailableBalance -= qty * price
-			quote.Balance -= qty * price
-		}
-		ex.accounts[base.Coin] = base
-		ex.accounts[quote.Coin] = quote
 		return
 	}
 	if order.Side == goexmodel.Spot_Sell {

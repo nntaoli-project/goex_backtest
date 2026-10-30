@@ -1,7 +1,7 @@
 exName="huobi.pro"
 supportCurrencyPairs =["BTC_USDT"]
-takerFee=0.00
-makerFee=0.00
+takerFee=0.0003
+makerFee=0.0001
 depthSize=20
 unGzip=false
 backTestStartTime="2020-03-01T00:00:00Z"
